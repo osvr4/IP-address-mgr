@@ -1,0 +1,20 @@
+{
+  "summary": "Iteration 4 retest — frontend-only. Preview URL now serves the React app (no webpack overlay). Super-admin login lands on Dashboard. Notification polling active (2 -> 3 calls in ~35s). Blocking /api/notifications produces exactly the expected `console.warn('Failed to load notifications: Network Error')` from Shell.jsx and the UI stays responsive (bell icon still rendered). No hydration warnings, no pageerrors, no unexpected console errors. Prior iteration blocker (missing node_modules) is resolved.",
+  "tested_scope": ["frontend", "integration"],
+  "passed": [
+    "Preview URL renders React shell (login page with 'Sign in' heading, ThinkCloud IPAM Control branding)",
+    "Super-admin login (admin@thinkcloud.in / ChangeMe@123) reaches Dashboard at '/' with Utilization/Free/Conflicts/Long-Held cards and 3 network tiles",
+    "Notification polling active — GET /api/notifications called repeatedly (2 -> 3 within 35s window)",
+    "Failure-path: page.route('**/api/notifications', abort) triggers exactly 1 console.warn 'Failed to load notifications: Network Error' — from Shell.jsx catch block",
+    "UI stays responsive after notification failure (bell icon still present, sidebar/dashboard fully rendered)",
+    "No React hydration warnings (previous `<div> in <p>` warning stays gone)",
+    "No pageerrors; only expected ERR_FAILED console error from the intentional route.abort()",
+    "data-testid attributes present on login form (login-email, login-password)"
+  ],
+  "failed": [],
+  "action_items": [],
+  "success_rate": {"backend": "not-tested", "frontend": "100%"},
+  "retest_needed": false,
+  "full_testing_deferred": true,
+  "notes": "Backend not re-tested per request (unchanged since iteration 1 100% pass). Logout+re-login was smoke-checked in an earlier pass (relogin returned to '/'). Everything wired up correctly for first finish."
+}

@@ -1,0 +1,75 @@
+version: "3.9"
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: ipam_mongo
+    restart: unless-stopped
+    volumes:
+      - ipam_mongo_data:/data/db
+    networks:
+      - ipam_net
+    # Bind to host loopback only — internal service; not exposed publicly
+    ports:
+      - "127.0.0.1:27017:27017"
+
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    container_name: ipam_backend
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    environment:
+      MONGO_URL: "mongodb://mongo:27017"
+      DB_NAME: "thinkcloud_ipam"
+      CORS_ORIGINS: "*"
+      # Change JWT_SECRET before first boot in production!
+      JWT_SECRET: "${JWT_SECRET:-CHANGE_ME_TO_A_LONG_RANDOM_STRING_64_HEX_CHARS}"
+      ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@thinkcloud.in}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-ChangeMe@123}"
+      # On-prem: false = real ICMP ping + reverse DNS against your subnets
+      IPAM_SIMULATED: "${IPAM_SIMULATED:-false}"
+      IPAM_SWEEP_INTERVAL_MIN: "${IPAM_SWEEP_INTERVAL_MIN:-15}"
+      IPAM_HOLD_MINUTES: "${IPAM_HOLD_MINUTES:-10}"
+      IPAM_LONG_HELD_DAYS: "${IPAM_LONG_HELD_DAYS:-90}"
+    networks:
+      - ipam_net
+    # Backend must be able to ICMP-ping the managed subnets from inside the container.
+    # For most on-prem deploys, host networking is the simplest route:
+    #   network_mode: "host"
+    # Uncomment the line above and REMOVE the "networks:" block if you need direct L2/L3 access.
+    cap_add:
+      - NET_RAW    # required for ping in some kernels
+      - NET_ADMIN
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.frontend
+      args:
+        # For same-host deployments, leave empty so the SPA calls the same origin
+        REACT_APP_BACKEND_URL: "${REACT_APP_BACKEND_URL:-}"
+    container_name: ipam_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      TLS_CN: "${TLS_CN:-ipam.thinkcloud.local}"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Persist the self-signed cert across restarts; also lets you drop-in your own cert
+      - ipam_tls:/etc/nginx/certs
+    networks:
+      - ipam_net
+
+volumes:
+  ipam_mongo_data:
+  ipam_tls:
+
+networks:
+  ipam_net:
+    driver: bridge

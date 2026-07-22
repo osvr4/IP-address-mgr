@@ -1,0 +1,138 @@
+{
+  "theme_strategy": "Light and Dark Modes Support",
+  "archetype": "Archetype 4: Swiss & High-Contrast (Terminal/Network Inspired)",
+  "rationale": "For an internal IPAM tool designed for IT admins, an authoritative, high-contrast, data-dense interface conveys precision and control. Monospace accents enhance the infrastructure/terminal aesthetic. We strictly avoid 'SaaS Purple' and gradient bloat, focusing heavily on legibility, grid systems, and functional status mapping.",
+  "colors": {
+    "light": {
+      "background": "#fafafa",
+      "surface": "#ffffff",
+      "surface_hover": "#f4f4f5",
+      "border": "#e4e4e7",
+      "text_primary": "#09090b",
+      "text_secondary": "#52525b",
+      "primary_accent": "#0055ff",
+      "primary_accent_hover": "#0044cc"
+    },
+    "dark": {
+      "background": "#09090b",
+      "surface": "#18181b",
+      "surface_hover": "#27272a",
+      "border": "#27272a",
+      "text_primary": "#fafafa",
+      "text_secondary": "#a1a1aa",
+      "primary_accent": "#3b82f6",
+      "primary_accent_hover": "#2563eb"
+    },
+    "status": {
+      "free": {
+        "hex": "#10b981",
+        "tailwind_bg": "bg-emerald-500",
+        "tailwind_text": "text-emerald-500",
+        "tailwind_border": "border-emerald-500",
+        "indicator": "🟢"
+      },
+      "in_use": {
+        "hex": "#3b82f6",
+        "tailwind_bg": "bg-blue-500",
+        "tailwind_text": "text-blue-500",
+        "tailwind_border": "border-blue-500",
+        "indicator": "🔵"
+      },
+      "dhcp": {
+        "hex": "#e4e4e7",
+        "tailwind_bg": "bg-zinc-300 dark:bg-zinc-600",
+        "tailwind_text": "text-zinc-600 dark:text-zinc-300",
+        "tailwind_border": "border-zinc-300 dark:border-zinc-600",
+        "indicator": "⚪"
+      },
+      "stale_dns": {
+        "hex": "#eab308",
+        "tailwind_bg": "bg-yellow-500",
+        "tailwind_text": "text-yellow-600 dark:text-yellow-500",
+        "tailwind_border": "border-yellow-500",
+        "indicator": "🟡"
+      },
+      "conflict": {
+        "hex": "#ef4444",
+        "tailwind_bg": "bg-red-500",
+        "tailwind_text": "text-red-600 dark:text-red-500",
+        "tailwind_border": "border-red-500",
+        "indicator": "🔴"
+      },
+      "reserved": {
+        "hex": "#000000",
+        "tailwind_bg": "bg-black dark:bg-zinc-900",
+        "tailwind_text": "text-zinc-900 dark:text-zinc-400",
+        "tailwind_border": "border-zinc-800 dark:border-black",
+        "indicator": "⚫"
+      }
+    }
+  },
+  "typography": {
+    "fonts": {
+      "heading": "'IBM Plex Sans', sans-serif",
+      "body": "'IBM Plex Sans', sans-serif",
+      "mono": "'IBM Plex Mono', monospace"
+    },
+    "rules": {
+      "h1": "text-3xl md:text-4xl tracking-tight font-semibold",
+      "h2": "text-xl md:text-2xl tracking-tight font-medium",
+      "h3": "text-lg font-medium",
+      "body": "text-sm md:text-base leading-relaxed",
+      "data_points": "font-mono tracking-tight",
+      "ip_addresses": "font-mono text-sm tracking-wider font-medium text-primary"
+    }
+  },
+  "layout": {
+    "spacing_system": "Use generous padding (p-6, p-8) for structural containers, but dense spacing (gap-1, gap-2) for data lists and subnet maps.",
+    "dashboard_grid": "Control Room Grid (MODE B): grid-cols-1 md:grid-cols-3 lg:grid-cols-4 with gap-4 or gap-6. Children h-full to stretch.",
+    "subnet_map": "Dense CSS Grid. w-3 h-3 md:w-4 md:h-4 blocks. Flat aesthetic with minimal gap (gap-[1px] or gap-1). Provide interactive tooltips on hover for IP details."
+  },
+  "components": {
+    "cards": "Technical aesthetic: flat design, no soft drop-shadows. Use 1px solid border (border-zinc-200 dark:border-zinc-800). Sharp edges or max rounded-md.",
+    "buttons": "Square or rounded-sm. Primary CTA uses brand blue. Secondary uses transparent bg with explicit border. All buttons must have strong hover states.",
+    "tables": "Dense rows. IP and Date columns MUST be font-mono. Status column uses color-coded dot + text. Left-aligned data.",
+    "inputs": "Shadcn standard but customized to sharp edges (rounded-sm), clear borders, focus:ring-2 focus:ring-blue-500 focus:ring-offset-1.",
+    "badges": "Technical labels. border border-current text-current bg-transparent px-2 py-0.5 rounded-none uppercase text-[10px] tracking-widest font-mono.",
+    "sidebar_nav": "Vertical layout. Subtle hover states (hover:bg-zinc-100 dark:hover:bg-zinc-800). Selected states should have a bold left border (border-l-2 border-blue-500)."
+  },
+  "interactions_and_motion": {
+    "hover": "Subtle background shifts. No heavy lifting/translating on hover to maintain the solid, reliable technical feel.",
+    "focus": "Clear 2px solid ring, ring-offset-background, ring-blue-500.",
+    "transitions": "transition-colors duration-150 ease-in-out"
+  },
+  "icons": {
+    "library": "lucide-react",
+    "style": "Use thin strokes (strokeWidth 1.5 or 2).",
+    "key_icons": ["Network", "Server", "ShieldAlert", "Activity", "GitCommit", "HardDrive", "Users", "Map"]
+  },
+  "media": {
+    "images": [
+      {
+        "url": "https://images.unsplash.com/photo-1782330300479-02550a1a3c7a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2OTV8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMGNsb3VkJTIwZGF0YSUyMGRhdGElMjBjZW50ZXJ8ZW58MHx8fHwxNzgzMTM1ODIxfDA&ixlib=rb-4.1.0&q=85",
+        "description": "Abstract circuit/network node background.",
+        "category": "login_background",
+        "instructions": "Use on the login/register screen to provide a technical atmosphere. Apply heavy opacity overlay (bg-black/80 or bg-zinc-900/90) so it doesn't distract from the authentication form."
+      },
+      {
+        "url": "https://images.pexels.com/photos/37730212/pexels-photo-37730212.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Modern server room.",
+        "category": "empty_state_illustration",
+        "instructions": "Use sparsely in 0-data states (like empty conflicts queue). Apply grayscale and opacity reduction."
+      }
+    ]
+  },
+  "testing": {
+    "rule": "All interactive and key informational elements MUST include a data-testid attribute. Example: data-testid='ip-request-submit', data-testid='nav-admin-dashboard'"
+  },
+  "instructions_to_main_agent": [
+    "1. Initialize React project with Vite, Tailwind CSS, and Shadcn UI. Install lucide-react.",
+    "2. Configure 'IBM Plex Sans' and 'IBM Plex Mono' in Tailwind config and import them via Google Fonts.",
+    "3. Set up Shadcn for Light and Dark modes. Map the provided custom hex colors to Tailwind CSS variables in index.css.",
+    "4. Build the Visual Subnet Map as a highly dense CSS Grid. Loop through network ranges (e.g., 256 for /24) to create grid cells. Each cell reflects its status color.",
+    "5. Do NOT use purple/violet colors anywhere. Avoid standard gradient backgrounds. Stick strictly to the defined status palette and blue primary accent.",
+    "6. Build a dashboard layout with a fixed sidebar and a main scrollable content area.",
+    "7. Format all IP addresses and MAC addresses using the 'font-mono' Tailwind class.",
+    "8. Apply data-testid attributes to all inputs, buttons, and row actions."
+  ]
+}

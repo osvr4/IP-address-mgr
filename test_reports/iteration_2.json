@@ -1,0 +1,35 @@
+{
+  "summary": "Frontend regression after code-quality refactor (named constants in api.js, memoized AuthContext, useCallback fetchNotifs in Shell). Super-admin login, dashboard, admin routes, notifications polling, and logout/re-login all pass with zero React re-render warnings. One flow issue observed on Request IP finalize (did not navigate to /mine; no release button in My IPs) — appears unrelated to this iteration's refactor but flagged.",
+  "tested_scope": ["frontend", "auth", "integration"],
+  "passed": [
+    "Super-admin login (admin@thinkcloud.in / ChangeMe@123) succeeds and lands on Dashboard",
+    "Token persisted in localStorage under key 'tc_ipam_token' (length 240)",
+    "GET /api/notifications is polled by Shell (16 calls captured across session, no errors)",
+    "All admin routes load without JS errors: /admin/addresses, /admin/conflicts, /admin/long-held, /admin/users, /admin/audit, /admin/import",
+    "Logout then re-login flow works with no console errors",
+    "AuthContext memoization: NO 'Too many re-renders', 'Maximum update depth', or 'Cannot update a component while rendering' warnings observed",
+    "Request IP: network list loads (4 options), Find address returns candidate 172.16.0.1"
+  ],
+  "failed": [
+    {
+      "area": "Request IP finalize flow",
+      "issue": "After filling device_name + purpose and clicking finalize-btn, URL stayed on /request instead of navigating to /mine. My IPs page shows 0 release buttons and Dashboard still reports 0 in use / 2043 eligible. Cause unclear (no console error surfaced); allocation may have failed silently or toast error was missed.",
+      "evidence": "STEP7 finalize clicked, URL now=https://address-mgr.preview.emergentagent.com/request; MyIPs release buttons found: 0",
+      "priority": "MEDIUM"
+    },
+    {
+      "area": "HTML hydration (pre-existing, unrelated to refactor)",
+      "issue": "Two console errors: '<div> cannot be a descendant of <p>' inside Dashboard/Guard tree.",
+      "evidence": "console error x2 with Guard x-file-name=App x-line-number=33",
+      "priority": "LOW"
+    }
+  ],
+  "action_items": [
+    "Investigate why Request IP finalize does not complete allocation / navigate to /mine in the preview env. Consider surfacing errors from the finalize API call more visibly (toast) so failures are not silent.",
+    "(Low priority, pre-existing) Fix <div> inside <p> hydration warning in Dashboard/Guard render."
+  ],
+  "success_rate": {"backend": "not-tested-this-iteration", "frontend": "~90%"},
+  "retest_needed": false,
+  "full_testing_deferred": true,
+  "notes": "Core objective of iteration 2 (memoization / no re-render regressions) is verified PASS. Request IP finalize issue is likely pre-existing / environmental and not caused by the refactor since api.js/AuthContext/Shell changes were purely non-functional."
+}

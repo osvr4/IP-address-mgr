@@ -1,0 +1,49 @@
+{
+  "summary": "Frontend UI verification for iteration 3 (Shell.jsx notification-warn logging) could NOT be executed. The React dev server compiles with 6 errors: multiple critical packages are absent from /app/frontend/node_modules (html-webpack-plugin, babel-loader, webpack-dev-server, @pmmmwh/react-refresh-webpack-plugin, webpack/hot/dev-server, @emergentbase/visual-edits). The browser receives the webpack error overlay HTML instead of the app, so login/dashboard/notification tests all fail at step 1 (no email input on page). Code review of /app/frontend/src/pages/Shell.jsx confirms the intended one-line change is in place (lines 41-44: catch logs `console.warn('Failed to load notifications:', err?.message || err)`), but runtime verification is blocked until dependencies are reinstalled.",
+  "tested_scope": ["frontend"],
+  "passed": [
+    "Static code review: Shell.jsx fetchNotifs catch block now calls console.warn with prefix 'Failed to load notifications:' as described (line 43)",
+    "Shell.jsx polling interval (NOTIFICATION_POLL_MS) and useEffect cleanup remain intact"
+  ],
+  "failed": [
+    {
+      "area": "frontend build / environment",
+      "issue": "webpack-dev-server compiles with 6 module-not-found errors. /app/frontend/node_modules is missing html-webpack-plugin, babel-loader, webpack-dev-server, @pmmmwh/react-refresh-webpack-plugin, webpack/hot/dev-server.js, and @emergentbase/visual-edits. Preview URL serves the webpack error overlay HTML, not the React app.",
+      "evidence": "/var/log/supervisor/frontend.out.log: 'ERROR in Module not found: Error: Can't resolve /app/frontend/node_modules/html-webpack-plugin/lib/loader.js ...'; 'ls /app/frontend/node_modules/html-webpack-plugin' returns 'No such file or directory'. Playwright login step timed out on input[type=email]; screenshot shows raw HtmlWebpackPlugin compilation error page.",
+      "priority": "HIGH"
+    },
+    {
+      "area": "notification happy path (regression)",
+      "issue": "Could not verify — blocked by build failure above",
+      "evidence": "N/A — app never loaded",
+      "priority": "HIGH"
+    },
+    {
+      "area": "notification failure path (new console.warn)",
+      "issue": "Could not verify runtime — blocked by build failure above",
+      "evidence": "N/A — app never loaded",
+      "priority": "HIGH"
+    },
+    {
+      "area": "<div> inside <p> hydration regression check",
+      "issue": "Could not verify — blocked by build failure above",
+      "evidence": "N/A — app never loaded",
+      "priority": "HIGH"
+    },
+    {
+      "area": "logout/login regression",
+      "issue": "Could not verify — blocked by build failure above",
+      "evidence": "N/A — app never loaded",
+      "priority": "HIGH"
+    }
+  ],
+  "action_items": [
+    "Reinstall frontend dependencies: cd /app/frontend && yarn install (or bun install per lockfile). Missing packages include html-webpack-plugin, babel-loader, webpack-dev-server, @pmmmwh/react-refresh-webpack-plugin, and @emergentbase/visual-edits.",
+    "After install, restart the frontend supervisor process and confirm `webpack compiled successfully` in /var/log/supervisor/frontend.out.log.",
+    "Then re-invoke the T1 sub-agent to actually exercise the five iteration-3 scenarios (login, poll success, blocked-URL warn, hydration warning check, logout/login)."
+  ],
+  "success_rate": {"backend": "not tested", "frontend": "0% (blocked before login)"},
+  "retest_needed": true,
+  "full_testing_deferred": true,
+  "test_credentials": "Loaded from /app/memory/test_credentials.md — admin@thinkcloud.in / ChangeMe@123 (unused; blocked)"
+}
