@@ -65,6 +65,8 @@ export default function SubnetMap() {
                     <div className="text-muted-foreground">{STATUS_LABEL[c.status]}</div>
                     {c.owner_email && <div className="text-muted-foreground">{c.owner_email}</div>}
                     {c.device_name && <div className="text-muted-foreground">{c.device_name}</div>}
+                    {c.vlan_id && <div className="text-muted-foreground">VLAN: {c.vlan_id}</div>}
+                    {c.location && <div className="text-muted-foreground">Loc: {c.location}</div>}
                   </TooltipContent>
                 </Tooltip>
               ))}

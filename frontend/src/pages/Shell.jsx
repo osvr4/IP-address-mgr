@@ -4,7 +4,7 @@ import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import {
   LayoutDashboard, PlusCircle, Server, ShieldAlert, Users, ScrollText,
-  Upload, Map, Network, LogOut, Clock, Bell,
+  Upload, Map, Network, LogOut, Clock, Bell, Archive,
 } from "lucide-react";
 import { useEffect, useState, useCallback } from "react";
 import { api, NOTIFICATION_POLL_MS } from "../lib/api";
@@ -86,6 +86,7 @@ export default function Shell() {
               <NavItem to="/admin/users" icon={Users}>Users</NavItem>
               <NavItem to="/admin/audit" icon={ScrollText}>Audit Log</NavItem>
               <NavItem to="/admin/import" icon={Upload}>Import Excel</NavItem>
+              <NavItem to="/admin/backups" icon={Archive}>Backups</NavItem>
             </>
           )}
         </nav>

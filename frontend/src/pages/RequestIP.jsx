@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api, formatError } from "../lib/api";
 import { Card } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -10,11 +11,12 @@ import { toast } from "sonner";
 import { RefreshCw, Check, AlertTriangle } from "lucide-react";
 
 export default function RequestIP() {
+  const nav = useNavigate();
   const [networks, setNetworks] = useState([]);
   const [chosen, setChosen] = useState("any");
   const [candidate, setCandidate] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({ device_name: "", purpose: "", device_type: "", mac_address: "" });
+  const [form, setForm] = useState({ device_name: "", purpose: "", device_type: "", mac_address: "", vlan_id: "", location: "" });
   const [tried, setTried] = useState([]);
 
   useEffect(() => { api.get("/networks").then((r) => setNetworks(r.data)); }, []);
@@ -44,8 +46,9 @@ export default function RequestIP() {
       await api.post("/ips/finalize", { address: candidate.address, ...form });
       toast.success(`Allocated ${candidate.address}`);
       setCandidate(null);
-      setForm({ device_name: "", purpose: "", device_type: "", mac_address: "" });
+      setForm({ device_name: "", purpose: "", device_type: "", mac_address: "", vlan_id: "", location: "" });
       setTried([]);
+      nav("/mine");
     } catch (err) { toast.error(formatError(err)); }
     finally { setBusy(false); }
   };
@@ -93,25 +96,30 @@ export default function RequestIP() {
             </div>
             <div className="flex flex-col gap-2 items-end">
               <Badge className="rounded-none font-mono uppercase text-[10px] tracking-widest bg-emerald-500 text-white">
-                <Check className="w-3 h-3 mr-1" /> Ping: no reply
+                <Check className="w-3 h-3 mr-1" /> Ping: No reply (Safe to allocate)
               </Badge>
               {candidate.stale ? (
                 <Badge className="rounded-none font-mono uppercase text-[10px] tracking-widest bg-yellow-500 text-black">
-                  <AlertTriangle className="w-3 h-3 mr-1" /> Stale DNS
+                  <AlertTriangle className="w-3 h-3 mr-1" /> Stale DNS: {candidate.dns}
                 </Badge>
               ) : (
-                <Badge variant="outline" className="rounded-none font-mono uppercase text-[10px] tracking-widest">No DNS record</Badge>
+                <Badge variant="outline" className="rounded-none font-mono uppercase text-[10px] tracking-widest text-emerald-600 dark:text-emerald-400 border-emerald-500/40">
+                  <Check className="w-3 h-3 mr-1" /> Clean DNS (No record)
+                </Badge>
               )}
-              <Badge variant="outline" className="rounded-none font-mono uppercase text-[9px] tracking-widest">{candidate.mode}</Badge>
+              <Badge variant="outline" className="rounded-none font-mono uppercase text-[9px] tracking-widest">
+                {candidate.mode === "live" ? "Live ICMP Ping Checked" : "Simulated"}
+              </Badge>
             </div>
           </div>
 
           {candidate.stale && candidate.dns && (
             <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-500 rounded-sm text-sm">
-              <div className="font-medium text-yellow-800 dark:text-yellow-300">Heads up</div>
+              <div className="font-medium text-yellow-800 dark:text-yellow-300">Stale DNS Detected</div>
               <div className="text-muted-foreground text-xs mt-1">
-                No live host here, but DNS still has an old record for{" "}
-                <span className="font-mono">{candidate.dns}</span> pointing at this address — you may want IT to clean that up.
+                No active host responded to ICMP ping at this address, but DNS still has an uncleaned PTR record for{" "}
+                <span className="font-mono font-semibold text-yellow-900 dark:text-yellow-200">{candidate.dns}</span>.
+                You can safely allocate this IP, but you may want IT to remove the old DNS record.
               </div>
             </div>
           )}
@@ -133,6 +141,14 @@ export default function RequestIP() {
               <div>
                 <Label>MAC address (optional)</Label>
                 <Input value={form.mac_address} onChange={(e) => setForm({ ...form, mac_address: e.target.value })} data-testid="mac-input" className="mt-1 font-mono" placeholder="AA:BB:CC:DD:EE:FF" />
+              </div>
+              <div>
+                <Label>VLAN ID / Tag (optional)</Label>
+                <Input value={form.vlan_id} onChange={(e) => setForm({ ...form, vlan_id: e.target.value })} data-testid="vlan-input" className="mt-1 font-mono" placeholder="100" />
+              </div>
+              <div>
+                <Label>Physical Location (optional)</Label>
+                <Input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} data-testid="location-input" className="mt-1" placeholder="Server Room Rack 4" />
               </div>
             </div>
             <div className="flex gap-3">

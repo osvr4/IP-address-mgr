@@ -43,20 +43,25 @@ export default function Dashboard() {
           <h1 className="text-3xl font-semibold tracking-tight">Dashboard</h1>
           <div className="text-sm text-muted-foreground mt-1 flex items-center gap-3">
             <span>Overview of IP allocation across all managed networks.</span>
-            {data.simulated && (
+            {data.simulated ? (
               <Badge variant="outline" className="uppercase text-[9px] tracking-widest font-mono rounded-none">
                 Simulated mode
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="uppercase text-[9px] tracking-widest font-mono rounded-none text-emerald-600 dark:text-emerald-400 border-emerald-500/40 flex items-center">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block mr-1.5 animate-pulse" /> Live Network Mode
               </Badge>
             )}
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <Stat label="Utilization" value={`${data.utilization_pct}%`} sub={`${data.total_in_use} in use / ${data.total_eligible} eligible`} icon={Activity} tone="border-blue-500 text-blue-500" />
         <Stat label="Free" value={data.total_free} sub="Available for allocation" icon={Activity} tone="border-emerald-500 text-emerald-500" />
         <Stat label="Conflicts" value={data.conflicts} sub="Ping response on free address" icon={ShieldAlert} tone="border-red-500 text-red-500" />
-        <Stat label="Long-Held" value={data.long_held} sub="Allocated > 90 days" icon={Clock} tone="border-yellow-500 text-yellow-500" />
+        <Stat label="Stale DNS" value={data.stale_dns} sub="Inactive host with PTR record" icon={AlertTriangle} tone="border-yellow-500 text-yellow-500" />
+        <Stat label="Long-Held" value={data.long_held} sub="Allocated > 90 days" icon={Clock} tone="border-purple-500 text-purple-500" />
       </div>
 
       <div>

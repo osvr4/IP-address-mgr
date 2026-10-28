@@ -56,7 +56,8 @@ services:
     depends_on:
       - backend
     environment:
-      TLS_CN: "${TLS_CN:-ipam.thinkcloud.local}"
+      TLS_CN: "${TLS_CN:-10.1.2.185}"
+      TLS_SAN: "${TLS_SAN:-IP:10.1.2.185}"
     ports:
       - "80:80"
       - "443:443"

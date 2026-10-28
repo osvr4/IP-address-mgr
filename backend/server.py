@@ -151,11 +151,25 @@ class FinalizeIn(BaseModel):
     purpose: str = Field(min_length=1)
     device_type: Optional[str] = None
     mac_address: Optional[str] = None
+    vlan_id: Optional[str] = None
+    location: Optional[str] = None
 
 
 class OverrideIn(BaseModel):
     status: str
     note: Optional[str] = None
+    vlan_id: Optional[str] = None
+    location: Optional[str] = None
+
+
+class IpUpdateIn(BaseModel):
+    device_name: Optional[str] = None
+    purpose: Optional[str] = None
+    device_type: Optional[str] = None
+    mac_address: Optional[str] = None
+    vlan_id: Optional[str] = None
+    location: Optional[str] = None
+    notes: Optional[str] = None
 
 
 # ---------- Audit ----------
@@ -314,6 +328,8 @@ def _serialize_ip(r: dict) -> dict:
         "purpose": r.get("purpose"),
         "device_type": r.get("device_type"),
         "mac_address": r.get("mac_address"),
+        "vlan_id": r.get("vlan_id"),
+        "location": r.get("location"),
         "allocated_at": r.get("allocated_at"),
         "released_at": r.get("released_at"),
         "last_checked_at": r.get("last_checked_at"),
@@ -376,6 +392,8 @@ async def list_ips(
             {"device_name": {"$regex": q, "$options": "i"}},
             {"purpose": {"$regex": q, "$options": "i"}},
             {"owner_email": {"$regex": q, "$options": "i"}},
+            {"vlan_id": {"$regex": q, "$options": "i"}},
+            {"location": {"$regex": q, "$options": "i"}},
         ]
     records = await db.ip_records.find(query).sort("address", 1).to_list(5000)
     return [_serialize_ip(r) for r in records]
@@ -409,6 +427,8 @@ async def subnet_map(network_id: str, user: dict = Depends(get_current_user)):
                 "owner_email": r.get("owner_email"),
                 "device_name": r.get("device_name"),
                 "purpose": r.get("purpose"),
+                "vlan_id": r.get("vlan_id"),
+                "location": r.get("location"),
             })
         else:
             cells.append({"address": a, "status": "free"})
@@ -421,11 +441,11 @@ def _all_addresses_for_net(net: dict) -> List[str]:
 
 
 async def _pick_candidate(net: dict, exclude: set) -> Optional[dict]:
-    """Find one candidate address in this network."""
+    """Find one candidate address in this network with real non-blocking verification."""
     net_id = str(net["_id"])
     sim = is_simulated()
 
-    # Load in-use / reserved / conflict / stale addresses
+    # Load in-use / reserved / conflict addresses
     taken = set()
     taken_recs = await db.ip_records.find(
         {"network_id": net_id, "status": {"$in": ["in_use", "reserved", "conflict"]}}
@@ -440,32 +460,32 @@ async def _pick_candidate(net: dict, exclude: set) -> Optional[dict]:
     for addr in _all_addresses_for_net(net):
         if addr in taken or addr in exclude:
             continue
-        # Verify
-        v = verify_address(addr, simulated=sim)
-        # Update last_checked
+        # Verify without blocking the asyncio event loop
+        v = await asyncio.to_thread(verify_address, addr, sim)
         existing = await db.ip_records.find_one({"address": addr})
         rec_update = {
             "last_checked_at": v["checked_at"],
             "last_check_result": v,
         }
         if v["ping"]:
-            # Never offer. Raise a conflict if DB thought it was free.
-            if existing is None or existing["status"] == "free":
-                await db.ip_records.update_one(
-                    {"address": addr},
-                    {"$set": {
-                        **rec_update,
-                        "address": addr,
-                        "network_id": net_id,
-                        "network_name": net["name"],
-                        "status": "conflict",
-                    }},
-                    upsert=True,
-                )
-                await db.verification_log.insert_one({
-                    "address": addr, "network_id": net_id, "trigger": "on_demand",
-                    "ping": v["ping"], "dns": v["dns"], "checked_at": v["checked_at"],
-                })
+            # Never offer an address that actually responds to ping!
+            # Raise a conflict immediately.
+            await db.ip_records.update_one(
+                {"address": addr},
+                {"$set": {
+                    **rec_update,
+                    "address": addr,
+                    "network_id": net_id,
+                    "network_name": net["name"],
+                    "status": "conflict",
+                }},
+                upsert=True,
+            )
+            await db.verification_log.insert_one({
+                "address": addr, "network_id": net_id, "trigger": "on_demand",
+                "ping": v["ping"], "dns": v["dns"], "checked_at": v["checked_at"],
+                "rtt": v.get("rtt"),
+            })
             continue
         # Not pinging — offer it
         stale = v["dns"] is not None
@@ -483,6 +503,7 @@ async def _pick_candidate(net: dict, exclude: set) -> Optional[dict]:
         await db.verification_log.insert_one({
             "address": addr, "network_id": net_id, "trigger": "on_demand",
             "ping": v["ping"], "dns": v["dns"], "checked_at": v["checked_at"],
+            "rtt": v.get("rtt"),
         })
         return {
             "address": addr,
@@ -491,9 +512,12 @@ async def _pick_candidate(net: dict, exclude: set) -> Optional[dict]:
             "ping": v["ping"],
             "dns": v["dns"],
             "stale": stale,
-            "mode": v["mode"],
+            "mode": v.get("mode", "live"),
+            "rtt": v.get("rtt"),
+            "details": v.get("details"),
         }
     return None
+
 
 
 @api.post("/ips/request")
@@ -564,6 +588,8 @@ async def finalize_ip(body: FinalizeIn, user: dict = Depends(get_current_user)):
         "purpose": body.purpose,
         "device_type": body.device_type,
         "mac_address": body.mac_address,
+        "vlan_id": body.vlan_id,
+        "location": body.location,
         "allocated_at": now_iso(),
         "released_at": None,
     }
@@ -572,6 +598,26 @@ async def finalize_ip(body: FinalizeIn, user: dict = Depends(get_current_user)):
     await audit("ip.allocate", user, ip_address=body.address, note=f"Device: {body.device_name} — {body.purpose}")
     await notify(user["id"], "IP allocated", f"{body.address} allocated to {body.device_name}", "success")
     r = await db.ip_records.find_one({"address": body.address})
+    return _serialize_ip(r)
+
+
+@api.patch("/ips/{address}")
+async def update_ip_metadata(address: str, body: IpUpdateIn, user: dict = Depends(get_current_user)):
+    r = await db.ip_records.find_one({"address": address})
+    if not r:
+        raise HTTPException(404, "Address not found")
+    is_owner = r.get("owner_user_id") == user["id"]
+    is_admin = user["role"] in ("admin", "super_admin")
+    if not (is_owner or is_admin):
+        raise HTTPException(403, "Not authorized to update this address")
+
+    updates = {}
+    for k, v in body.model_dump(exclude_unset=True).items():
+        updates[k] = v
+    if updates:
+        await db.ip_records.update_one({"address": address}, {"$set": updates})
+        await audit("ip.metadata_update", user, ip_address=address, note=f"Updated {', '.join(updates.keys())}")
+    r = await db.ip_records.find_one({"address": address})
     return _serialize_ip(r)
 
 
@@ -593,6 +639,8 @@ async def release_ip(address: str, user: dict = Depends(get_current_user)):
         "purpose": None,
         "device_type": None,
         "mac_address": None,
+        "vlan_id": None,
+        "location": None,
         "allocated_at": None,
     }})
     action = "ip.release" if is_owner else "ip.force_release"
@@ -617,18 +665,109 @@ async def override_ip(address: str, body: OverrideIn, user: dict = Depends(requi
                 continue
         if not net:
             raise HTTPException(404, "Address not part of any managed network")
-        await db.ip_records.insert_one({
+        new_doc = {
             "address": address,
             "network_id": str(net["_id"]),
             "network_name": net["name"],
             "status": body.status,
             "notes": body.note or "",
             "created_at": now_iso(),
-        })
+        }
+        if body.vlan_id is not None:
+            new_doc["vlan_id"] = body.vlan_id
+        if body.location is not None:
+            new_doc["location"] = body.location
+        await db.ip_records.insert_one(new_doc)
     else:
-        await db.ip_records.update_one({"address": address}, {"$set": {"status": body.status, "notes": body.note or ""}})
+        updates = {"status": body.status, "notes": body.note or ""}
+        if body.vlan_id is not None:
+            updates["vlan_id"] = body.vlan_id
+        if body.location is not None:
+            updates["location"] = body.location
+        await db.ip_records.update_one({"address": address}, {"$set": updates})
     await audit("ip.override", user, ip_address=address, note=f"Set status={body.status}: {body.note}")
     return {"ok": True}
+
+
+@api.post("/ips/{address}/verify")
+async def verify_single_ip(address: str, user: dict = Depends(get_current_user)):
+    """Run real-time ICMP ping and reverse DNS verification on a specific IP."""
+    sim = is_simulated()
+    v = await asyncio.to_thread(verify_address, address, sim)
+
+    r = await db.ip_records.find_one({"address": address})
+    net = None
+    if not r:
+        for n in await db.networks.find({}).to_list(100):
+            try:
+                if ipaddress.ip_address(address) in ipaddress.ip_network(n["cidr"], strict=False):
+                    net = n
+                    break
+            except ValueError:
+                continue
+
+    updates = {
+        "last_checked_at": v["checked_at"],
+        "last_check_result": v,
+    }
+
+    # Determine status
+    if r and r.get("status") in ("in_use", "reserved"):
+        new_status = r["status"]
+    else:
+        if v["ping"]:
+            new_status = "conflict"
+        elif v["dns"]:
+            new_status = "stale_dns"
+        else:
+            new_status = "free"
+        updates["status"] = new_status
+
+    if r:
+        await db.ip_records.update_one({"address": address}, {"$set": updates})
+        updated_rec = await db.ip_records.find_one({"address": address})
+    elif net:
+        doc = {
+            "address": address,
+            "network_id": str(net["_id"]),
+            "network_name": net["name"],
+            "status": new_status,
+            "last_checked_at": v["checked_at"],
+            "last_check_result": v,
+            "created_at": now_iso(),
+        }
+        await db.ip_records.insert_one(doc)
+        updated_rec = doc
+    else:
+        updated_rec = None
+
+    await db.verification_log.insert_one({
+        "address": address,
+        "trigger": "manual_ui",
+        "user_email": user.get("email"),
+        "ping": v["ping"],
+        "dns": v["dns"],
+        "checked_at": v["checked_at"],
+        "rtt": v.get("rtt"),
+    })
+
+    return {
+        "address": address,
+        "ping": v["ping"],
+        "dns": v["dns"],
+        "rtt": v.get("rtt"),
+        "status": new_status,
+        "mode": v.get("mode", "live"),
+        "details": v.get("details"),
+        "record": _serialize_ip(updated_rec) if updated_rec else None,
+    }
+
+
+@api.post("/sweep/run")
+async def trigger_sweep(user: dict = Depends(require_admin)):
+    """Trigger background sweep immediately on demand."""
+    asyncio.create_task(background_sweep())
+    return {"ok": True, "message": "Live network sweep started in background"}
 
 
 # ---------- Conflicts / Long-held ----------
@@ -757,7 +896,34 @@ async def mark_read(user: dict = Depends(get_current_user)):
     return {"ok": True}
 
 
-# ---------- Export ----------
+# ---------- Export & Backups ----------
+BACKUPS_DIR = Path(__file__).parent.parent / "backups"
+BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+async def generate_backup_csv() -> str:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    filename = f"ipam_backup_{timestamp}.csv"
+    filepath = BACKUPS_DIR / filename
+    rows = await db.ip_records.find({}).sort("address", 1).to_list(10000)
+    with open(filepath, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "address", "network", "status", "owner_email", "device_name", "purpose",
+            "device_type", "mac_address", "vlan_id", "location", "allocated_at", "released_at", "last_checked_at", "days_in_use",
+        ])
+        for r in rows:
+            writer.writerow([
+                r.get("address"), r.get("network_name"), r.get("status"),
+                r.get("owner_email"), r.get("device_name"), r.get("purpose"),
+                r.get("device_type"), r.get("mac_address"), r.get("vlan_id"), r.get("location"),
+                r.get("allocated_at"), r.get("released_at"),
+                r.get("last_checked_at"), _days_in_use(r),
+            ])
+    logger.info(f"[backup] generated backup {filename}")
+    return filename
+
+
 @api.get("/export/csv")
 async def export_csv(user: dict = Depends(require_admin)):
     rows = await db.ip_records.find({}).sort("address", 1).to_list(10000)
@@ -765,13 +931,13 @@ async def export_csv(user: dict = Depends(require_admin)):
     writer = csv.writer(output)
     writer.writerow([
         "address", "network", "status", "owner_email", "device_name", "purpose",
-        "device_type", "mac_address", "allocated_at", "released_at", "last_checked_at", "days_in_use",
+        "device_type", "mac_address", "vlan_id", "location", "allocated_at", "released_at", "last_checked_at", "days_in_use",
     ])
     for r in rows:
         writer.writerow([
             r.get("address"), r.get("network_name"), r.get("status"),
             r.get("owner_email"), r.get("device_name"), r.get("purpose"),
-            r.get("device_type"), r.get("mac_address"),
+            r.get("device_type"), r.get("mac_address"), r.get("vlan_id"), r.get("location"),
             r.get("allocated_at"), r.get("released_at"),
             r.get("last_checked_at"), _days_in_use(r),
         ])
@@ -780,46 +946,186 @@ async def export_csv(user: dict = Depends(require_admin)):
                              headers={"Content-Disposition": "attachment; filename=ipam_export.csv"})
 
 
+@api.get("/backups")
+async def list_backups(user: dict = Depends(require_admin)):
+    files = []
+    if BACKUPS_DIR.exists():
+        for p in sorted(BACKUPS_DIR.glob("ipam_backup_*.csv"), reverse=True):
+            stat = p.stat()
+            files.append({
+                "filename": p.name,
+                "size_bytes": stat.st_size,
+                "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+            })
+    return files
+
+
+@api.post("/backups/generate")
+async def trigger_backup(user: dict = Depends(require_admin)):
+    filename = await generate_backup_csv()
+    await audit("backup.generate", user, note=f"Created backup {filename}")
+    return {"ok": True, "filename": filename}
+
+
+@api.get("/backups/{filename}")
+async def download_backup(filename: str, user: dict = Depends(require_admin)):
+    safe_name = Path(filename).name
+    filepath = BACKUPS_DIR / safe_name
+    if not filepath.exists() or not filepath.is_file():
+        raise HTTPException(404, "Backup not found")
+
+    def iterfile():
+        with open(filepath, "rb") as f:
+            while chunk := f.read(65536):
+                yield chunk
+
+    return StreamingResponse(
+        iterfile(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={safe_name}"}
+    )
+
+
 # ---------- Excel Import ----------
 @api.post("/import/excel")
 async def import_excel(file: UploadFile = File(...), user: dict = Depends(require_admin)):
     content = await file.read()
-    wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
-    ws = wb.active
-    rows = list(ws.iter_rows(values_only=True))
-    if not rows:
-        raise HTTPException(400, "Empty spreadsheet")
-    headers_row = [str(h).strip().lower() if h else "" for h in rows[0]]
-
-    def find_col(*candidates):
-        for c in candidates:
-            if c in headers_row:
-                return headers_row.index(c)
-        return None
-
-    idx_addr = find_col("address", "ip", "ip address", "ip_address")
-    idx_owner = find_col("owner", "owner_email", "email", "user")
-    idx_device = find_col("device", "device_name", "hostname")
-    idx_purpose = find_col("purpose", "notes", "note")
-    idx_mac = find_col("mac", "mac_address")
-    idx_date = find_col("allocated_at", "date", "allocated")
-
-    if idx_addr is None:
-        raise HTTPException(400, "Column 'address' (or 'ip') is required.")
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
+    except Exception as e:
+        raise HTTPException(400, f"Invalid Excel spreadsheet: {e}")
 
     nets = await db.networks.find({}).to_list(100)
 
+    def parse_ip(val):
+        if not val or not isinstance(val, (str, int)):
+            return None
+        val_str = str(val).strip()
+        try:
+            ip = ipaddress.ip_address(val_str)
+            if ip.version == 4:
+                return val_str
+        except ValueError:
+            pass
+        return None
+
+    sheet_names = wb.sheetnames
+    if not sheet_names:
+        raise HTTPException(400, "Empty spreadsheet")
+
+    active_name = wb.active.title if wb.active else sheet_names[0]
+    ordered_sheets = []
+    if "Reorganized" in sheet_names:
+        ordered_sheets.append("Reorganized")
+    elif "Sheet1" in sheet_names:
+        ordered_sheets.append("Sheet1")
+    elif active_name in sheet_names:
+        ordered_sheets.append(active_name)
+    for s in sheet_names:
+        if s not in ordered_sheets and s != "Free IPs":
+            ordered_sheets.append(s)
+
+    seen_ips = {}
+
+    for sname in ordered_sheets:
+        ws = wb[sname]
+        sheet_rows = list(ws.iter_rows(values_only=True))
+        if not sheet_rows:
+            continue
+
+        # Look for header row in top 6 rows
+        header_row_idx = None
+        for r_i, r_data in enumerate(sheet_rows[:6]):
+            if not r_data:
+                continue
+            cells_str = [str(c).strip().lower() for c in r_data if c is not None]
+            if any(term in cells_str for term in ["ip", "ip address", "ip_address", "address", "ip addr"]):
+                header_row_idx = r_i
+                break
+
+        if header_row_idx is not None:
+            h_row = [str(c).strip().lower() if c is not None else "" for c in sheet_rows[header_row_idx]]
+            ip_cols = [c_i for c_i, name in enumerate(h_row) if name in ["ip", "ip address", "ip_address", "address", "ip addr"]]
+
+            for r_i in range(header_row_idx + 1, len(sheet_rows)):
+                row = sheet_rows[r_i]
+                if not row:
+                    continue
+                for ip_col in ip_cols:
+                    if ip_col >= len(row) or not row[ip_col]:
+                        continue
+                    ip_str = parse_ip(row[ip_col])
+                    if not ip_str or ip_str in seen_ips:
+                        continue
+
+                    device_name = ""
+                    owner = ""
+                    purpose = ""
+                    vlan = ""
+                    location = ""
+
+                    for offset in [-1, -2, -3, 1, 2, 3]:
+                        col_idx = ip_col + offset
+                        if 0 <= col_idx < len(row) and col_idx not in ip_cols:
+                            cell_val = row[col_idx]
+                            if cell_val is None:
+                                continue
+                            val_str = str(cell_val).strip()
+                            if not val_str:
+                                continue
+                            col_header = h_row[col_idx] if col_idx < len(h_row) else ""
+
+                            if any(k in col_header for k in ["service", "device", "hostname", "reason"]):
+                                device_name = val_str
+                            elif any(k in col_header for k in ["owner", "user", "name"]):
+                                owner = val_str
+                            elif any(k in col_header for k in ["purpose", "note"]):
+                                purpose = val_str
+                            elif any(k in col_header for k in ["vlan", "subnet"]):
+                                vlan = val_str
+                            elif any(k in col_header for k in ["loc", "site", "rack"]):
+                                location = val_str
+                            elif offset < 0 and not device_name and val_str != ip_str and not val_str.isdigit():
+                                device_name = val_str
+                            elif offset > 0 and not owner and val_str != ip_str:
+                                owner = val_str
+
+                    seen_ips[ip_str] = {
+                        "address": ip_str,
+                        "device_name": device_name or "imported",
+                        "purpose": purpose or (f"Service: {device_name}" if device_name else f"Imported from {sname}"),
+                        "owner": owner,
+                        "vlan_id": vlan,
+                        "location": location,
+                    }
+        else:
+            for r_i, row in enumerate(sheet_rows):
+                if not row:
+                    continue
+                for c_i, cell in enumerate(row):
+                    ip_str = parse_ip(cell)
+                    if not ip_str or ip_str in seen_ips:
+                        continue
+                    device = str(row[c_i - 1]).strip() if c_i > 0 and row[c_i - 1] is not None else ""
+                    owner = str(row[c_i + 1]).strip() if c_i + 1 < len(row) and row[c_i + 1] is not None else ""
+                    seen_ips[ip_str] = {
+                        "address": ip_str,
+                        "device_name": device or "imported",
+                        "purpose": f"Imported from {sname}",
+                        "owner": owner,
+                        "vlan_id": "",
+                        "location": "",
+                    }
+
+    if not seen_ips:
+        raise HTTPException(400, "No valid IP addresses found in spreadsheet.")
+
     imported = 0
     skipped = 0
-    for row in rows[1:]:
-        addr = row[idx_addr] if idx_addr is not None and row[idx_addr] else None
-        if not addr:
-            continue
-        addr = str(addr).strip()
-        # Find matching network
-        net_match = None
+    for addr, item in seen_ips.items():
         try:
             ip = ipaddress.ip_address(addr)
+            net_match = None
             for n in nets:
                 if ip in ipaddress.ip_network(n["cidr"], strict=False):
                     net_match = n
@@ -827,32 +1133,40 @@ async def import_excel(file: UploadFile = File(...), user: dict = Depends(requir
         except ValueError:
             skipped += 1
             continue
+
         if not net_match:
             skipped += 1
             continue
+
         if is_in_dhcp_range(addr, net_match.get("excluded_ranges", [])):
             skipped += 1
             continue
-        allocated_at = None
-        if idx_date is not None and row[idx_date]:
-            d = row[idx_date]
-            if isinstance(d, datetime):
-                allocated_at = d.replace(tzinfo=timezone.utc).isoformat() if d.tzinfo is None else d.isoformat()
+
+        raw_owner = item.get("owner", "").strip()
+        owner_email = None
+        if raw_owner:
+            if "@" in raw_owner:
+                owner_email = raw_owner.lower()
             else:
-                allocated_at = str(d)
+                clean_name = "".join(c for c in raw_owner.lower() if c.isalnum() or c in " ._-").replace(" ", ".")
+                owner_email = f"{clean_name}@thinkcloud.in" if clean_name else None
+
         doc = {
             "address": addr,
             "network_id": str(net_match["_id"]),
             "network_name": net_match["name"],
             "status": "in_use",
-            "owner_email": str(row[idx_owner]).strip().lower() if idx_owner is not None and row[idx_owner] else None,
-            "device_name": str(row[idx_device]).strip() if idx_device is not None and row[idx_device] else "imported",
-            "purpose": str(row[idx_purpose]).strip() if idx_purpose is not None and row[idx_purpose] else "imported from spreadsheet",
-            "mac_address": str(row[idx_mac]).strip() if idx_mac is not None and row[idx_mac] else None,
-            "allocated_at": allocated_at or now_iso(),
+            "owner_email": owner_email,
+            "device_name": item.get("device_name") or "imported",
+            "purpose": item.get("purpose") or (f"Owner: {raw_owner}" if raw_owner else "imported from spreadsheet"),
+            "mac_address": None,
+            "vlan_id": item.get("vlan_id") or None,
+            "location": item.get("location") or None,
+            "allocated_at": now_iso(),
         }
         await db.ip_records.update_one({"address": addr}, {"$set": doc}, upsert=True)
         imported += 1
+
     await audit("import.excel", user, note=f"Imported {imported} rows, skipped {skipped}")
     return {"imported": imported, "skipped": skipped}
 
@@ -903,46 +1217,55 @@ scheduler = AsyncIOScheduler()
 
 
 async def background_sweep():
-    """Sweep all networks, verify statuses, flag conflicts."""
-    logger.info("[sweep] starting…")
+    """Sweep all networks concurrently with semaphore pool, updating real status without blocking event loop."""
+    logger.info("[sweep] starting live network sweep…")
     sim = is_simulated()
     nets = await db.networks.find({}).to_list(100)
-    updated = 0
+    sem = asyncio.Semaphore(25)
+
+    async def process_addr(addr: str, net: dict):
+        async with sem:
+            try:
+                v = await asyncio.to_thread(verify_address, addr, sim)
+                existing = await db.ip_records.find_one({"address": addr})
+                if existing and existing.get("status") in ("in_use", "reserved"):
+                    await db.ip_records.update_one(
+                        {"address": addr},
+                        {"$set": {
+                            "last_checked_at": v["checked_at"],
+                            "last_check_result": v,
+                        }}
+                    )
+                    return
+                # Unassigned address
+                if v["ping"]:
+                    new_status = "conflict"
+                elif v["dns"]:
+                    new_status = "stale_dns"
+                else:
+                    new_status = "free"
+
+                doc_set = {
+                    "address": addr,
+                    "network_id": str(net["_id"]),
+                    "network_name": net["name"],
+                    "status": new_status,
+                    "last_checked_at": v["checked_at"],
+                    "last_check_result": v,
+                }
+                await db.ip_records.update_one({"address": addr}, {"$set": doc_set}, upsert=True)
+            except Exception as e:
+                logger.warning(f"[sweep] failed on {addr}: {e}")
+
+    tasks = []
     for net in nets:
         for addr in _all_addresses_for_net(net):
-            existing = await db.ip_records.find_one({"address": addr})
-            v = verify_address(addr, simulated=sim)
-            new_status = None
-            if existing and existing["status"] in ("in_use", "reserved"):
-                # keep, but note last check
-                await db.ip_records.update_one({"address": addr}, {"$set": {
-                    "last_checked_at": v["checked_at"], "last_check_result": v,
-                }})
-                if existing["status"] == "in_use" and not v["ping"]:
-                    # Just log; some machines are off. No status change.
-                    pass
-                continue
-            # Free-side addresses
-            if v["ping"]:
-                new_status = "conflict"
-            elif v["dns"]:
-                new_status = "stale_dns"
-            else:
-                new_status = "free"
-            doc_set = {
-                "address": addr,
-                "network_id": str(net["_id"]),
-                "network_name": net["name"],
-                "status": new_status,
-                "last_checked_at": v["checked_at"],
-                "last_check_result": v,
-            }
-            await db.ip_records.update_one({"address": addr}, {"$set": doc_set}, upsert=True)
-            updated += 1
-            # Throttle a bit to avoid overwhelming
-            if updated % 100 == 0:
-                await asyncio.sleep(0.05)
-    logger.info(f"[sweep] done — {updated} addresses evaluated")
+            tasks.append(process_addr(addr, net))
+
+    batch_size = 50
+    for i in range(0, len(tasks), batch_size):
+        await asyncio.gather(*tasks[i:i + batch_size])
+    logger.info(f"[sweep] done — {len(tasks)} addresses evaluated")
 
 
 @app.on_event("startup")
@@ -952,6 +1275,7 @@ async def startup():
     await seed_networks()
     # Kick off scheduler
     scheduler.add_job(background_sweep, "interval", minutes=SWEEP_MIN, id="sweep", max_instances=1, coalesce=True)
+    scheduler.add_job(generate_backup_csv, "cron", hour=0, minute=0, id="nightly_backup", max_instances=1, coalesce=True)
     scheduler.start()
     # Run an initial sweep in the background (non-blocking)
     asyncio.create_task(background_sweep())
